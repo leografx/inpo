@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inpo — PDF Imposition</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs" type="module"></script>
+</head>
+<body>
+    <!-- LEFT: Preview Panel -->
+    <div id="preview-panel">
+        <div id="preview-header">
+            <h2>Preview</h2>
+            <div id="preview-controls" class="hidden">
+                <button id="btn-prev-page" title="Previous page">&larr;</button>
+                <span id="page-indicator">1 / 1</span>
+                <button id="btn-next-page" title="Next page">&rarr;</button>
+                <button id="btn-zoom-out" title="Zoom out">&minus;</button>
+                <span id="zoom-level">Fit</span>
+                <button id="btn-zoom-in" title="Zoom in">+</button>
+                <button id="btn-zoom-fit" title="Fit to view">Fit</button>
+                <select id="preview-source">
+                    <option value="input">Original</option>
+                    <option value="result" disabled>Result</option>
+                </select>
+            </div>
+        </div>
+        <div id="preview-area">
+            <div id="preview-placeholder">
+                <p>Upload a PDF to preview</p>
+            </div>
+            <canvas id="pdf-canvas"></canvas>
+        </div>
+    </div>
+
+    <!-- RESIZE HANDLE -->
+    <div id="resize-handle"></div>
+
+    <!-- RIGHT: Controls Panel -->
+    <div id="controls-panel">
+        <h1>Inpo</h1>
+        <p class="subtitle">PDF Imposition & Prepress</p>
+
+        <!-- Upload -->
+        <fieldset>
+            <legend>Upload PDF</legend>
+            <div id="drop-zone">
+                <p>Drag & drop PDF here</p>
+                <p class="small">or</p>
+                <label class="file-btn">
+                    Browse...
+                    <input type="file" id="file-input" accept=".pdf" hidden>
+                </label>
+            </div>
+            <div id="file-info" class="hidden">
+                <span id="file-name"></span>
+                <span id="file-pages"></span>
+                <button id="btn-clear-file" title="Remove file">&times;</button>
+            </div>
+        </fieldset>
+
+        <!-- Pipeline Steps -->
+        <fieldset>
+            <legend>Pipeline Steps</legend>
+            <label class="checkbox-row">
+                <input type="checkbox" id="chk-remove-marks" checked>
+                Remove Marks (mask outside bleed)
+            </label>
+            <label class="checkbox-row">
+                <input type="checkbox" id="chk-crop-bleed" checked>
+                Crop to Bleed
+            </label>
+            <label class="checkbox-row">
+                <input type="checkbox" id="chk-convert-cmyk" checked>
+                Convert to CMYK
+            </label>
+            <div id="cmyk-options" class="sub-options">
+                <label>
+                    Rendering Intent
+                    <select id="sel-cmyk-intent">
+                        <option value="0">Perceptual (photos)</option>
+                        <option value="1" selected>Relative Colorimetric</option>
+                        <option value="2">Saturation (graphics)</option>
+                        <option value="3">Absolute Colorimetric</option>
+                    </select>
+                </label>
+            </div>
+        </fieldset>
+
+        <!-- Sheet Settings -->
+        <fieldset>
+            <legend>Sheet Size</legend>
+            <div class="form-row">
+                <label>
+                    Preset
+                    <select id="sel-sheet">
+                        <option value="">-- select --</option>
+                    </select>
+                </label>
+            </div>
+            <div id="custom-size" class="hidden">
+                <div class="form-row inline">
+                    <label>W <input type="number" id="custom-w" step="0.1" min="1"></label>
+                    <label>H <input type="number" id="custom-h" step="0.1" min="1"></label>
+                    <select id="custom-unit">
+                        <option value="mm" selected>mm</option>
+                        <option value="in">in</option>
+                        <option value="pt">pt</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <label>
+                    Orientation
+                    <select id="sel-orientation">
+                        <option value="">Auto</option>
+                        <option value="portrait">Portrait</option>
+                        <option value="landscape">Landscape</option>
+                    </select>
+                </label>
+            </div>
+            <div class="form-row">
+                <label>
+                    Margin (inches)
+                    <input type="number" id="inp-margin" value="0.375" step="0.125" min="0" max="5">
+                </label>
+            </div>
+        </fieldset>
+
+        <!-- Marks & Overlay -->
+        <fieldset>
+            <legend>Marks & Overlay</legend>
+            <label class="checkbox-row">
+                <input type="checkbox" id="chk-marks">
+                Crop Marks
+            </label>
+            <label class="checkbox-row">
+                <input type="checkbox" id="chk-outline">
+                Debug Overlay (trim/bleed/group)
+            </label>
+        </fieldset>
+
+        <!-- Actions -->
+        <div id="actions">
+            <button id="btn-process" disabled>Process</button>
+            <a id="btn-download" class="hidden" download>Download Result</a>
+        </div>
+
+        <!-- Status -->
+        <div id="status" class="hidden">
+            <div id="status-spinner" class="hidden"></div>
+            <p id="status-text"></p>
+        </div>
+
+        <!-- PDF Info -->
+        <fieldset id="info-section" class="hidden">
+            <legend>PDF Info</legend>
+            <div id="info-content"></div>
+        </fieldset>
+    </div>
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>
