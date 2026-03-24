@@ -226,6 +226,64 @@ def get_info(job_id):
     return jsonify(pdf_info(str(f)))
 
 
+@app.route("/api/jobs/<job_id>/set-boxes", methods=["POST"])
+def set_boxes(job_id):
+    """
+    Set page box dimensions on the uploaded PDF.
+    Body: { pages: [ { page: 1, mediabox: [x,y,w,h], cropbox: ..., bleedbox: ..., trimbox: ... } ] }
+    Values are in points. Omit a box key to leave it unchanged.
+    """
+    from pypdf import PdfReader as _PdfReader, PdfWriter as _PdfWriter
+    from pypdf.generic import ArrayObject as _Arr, FloatObject as _Fl, NameObject as _Name
+
+    job_dir = _job_dir(job_id)
+    input_path = job_dir / "input.pdf"
+    if not input_path.exists():
+        abort(404)
+
+    data = request.get_json()
+    if not data or "pages" not in data:
+        return jsonify({"error": "Missing pages array"}), 400
+
+    reader = _PdfReader(str(input_path))
+    writer = _PdfWriter()
+
+    # Build lookup of changes: page_num -> {box_name: [x,y,w,h]}
+    changes = {}
+    for entry in data["pages"]:
+        pg = entry.get("page")
+        if pg is not None:
+            changes[pg] = entry
+
+    for i, page in enumerate(reader.pages):
+        pg_num = i + 1
+        ch = changes.get(pg_num, {})
+
+        box_map = {
+            "mediabox": "/MediaBox",
+            "cropbox": "/CropBox",
+            "bleedbox": "/BleedBox",
+            "trimbox": "/TrimBox",
+        }
+
+        for key, pdf_key in box_map.items():
+            vals = ch.get(key)
+            if vals and len(vals) == 4:
+                x, y, w, h = [float(v) for v in vals]
+                page[_Name(pdf_key)] = _Arr([
+                    _Fl(x), _Fl(y), _Fl(x + w), _Fl(y + h),
+                ])
+
+        writer.add_page(page)
+
+    # Overwrite the input file
+    with open(str(input_path), "wb") as f:
+        writer.write(f)
+
+    info = pdf_info(str(input_path))
+    return jsonify({"info": info})
+
+
 @app.route("/api/jobs/<job_id>", methods=["DELETE"])
 def delete_job(job_id):
     """Clean up a job directory."""

@@ -42,7 +42,7 @@
         <h1>Inpo</h1>
         <p class="subtitle">PDF Imposition & Prepress</p>
 
-        <!-- Upload -->
+        <!-- Upload (always visible, above tabs) -->
         <fieldset>
             <legend>Upload PDF</legend>
             <div id="drop-zone">
@@ -60,104 +60,236 @@
             </div>
         </fieldset>
 
-        <!-- Pipeline Steps -->
-        <fieldset>
-            <legend>Pipeline Steps</legend>
-            <label class="checkbox-row">
-                <input type="checkbox" id="chk-remove-marks" checked>
-                Remove Marks (mask outside bleed)
-            </label>
-            <label class="checkbox-row">
-                <input type="checkbox" id="chk-crop-bleed" checked>
-                Crop to Bleed
-            </label>
-            <label class="checkbox-row">
-                <input type="checkbox" id="chk-convert-cmyk" checked>
-                Convert to CMYK
-            </label>
-            <div id="cmyk-options" class="sub-options">
-                <label>
-                    Rendering Intent
-                    <select id="sel-cmyk-intent">
-                        <option value="0">Perceptual (photos)</option>
-                        <option value="1" selected>Relative Colorimetric</option>
-                        <option value="2">Saturation (graphics)</option>
-                        <option value="3">Absolute Colorimetric</option>
-                    </select>
-                </label>
-            </div>
-        </fieldset>
+        <!-- Tabs -->
+        <div id="tab-bar">
+            <button class="tab active" data-tab="tab-impose">Impose</button>
+            <button class="tab" data-tab="tab-page-spec">Page Spec</button>
+        </div>
 
-        <!-- Sheet Settings -->
-        <fieldset>
-            <legend>Sheet Size</legend>
-            <div class="form-row">
-                <label>
-                    Preset
-                    <select id="sel-sheet">
-                        <option value="">-- select --</option>
-                    </select>
+        <!-- Tab: Impose -->
+        <div id="tab-impose" class="tab-content active">
+            <!-- Pipeline Steps -->
+            <fieldset>
+                <legend>Pipeline Steps</legend>
+                <label class="checkbox-row">
+                    <input type="checkbox" id="chk-remove-marks" checked>
+                    Remove Marks (mask outside bleed)
                 </label>
+                <label class="checkbox-row">
+                    <input type="checkbox" id="chk-crop-bleed" checked>
+                    Crop to Bleed
+                </label>
+                <label class="checkbox-row">
+                    <input type="checkbox" id="chk-convert-cmyk" checked>
+                    Convert to CMYK
+                </label>
+                <div id="cmyk-options" class="sub-options">
+                    <label>
+                        Rendering Intent
+                        <select id="sel-cmyk-intent">
+                            <option value="0">Perceptual (photos)</option>
+                            <option value="1" selected>Relative Colorimetric</option>
+                            <option value="2">Saturation (graphics)</option>
+                            <option value="3">Absolute Colorimetric</option>
+                        </select>
+                    </label>
+                </div>
+            </fieldset>
+
+            <!-- Sheet Settings -->
+            <fieldset>
+                <legend>Sheet Size</legend>
+                <div class="form-row">
+                    <label>
+                        Preset
+                        <select id="sel-sheet">
+                            <option value="">-- select --</option>
+                        </select>
+                    </label>
+                </div>
+                <div id="custom-size" class="hidden">
+                    <div class="form-row inline">
+                        <label>W <input type="number" id="custom-w" step="0.1" min="1"></label>
+                        <label>H <input type="number" id="custom-h" step="0.1" min="1"></label>
+                        <select id="custom-unit">
+                            <option value="mm" selected>mm</option>
+                            <option value="in">in</option>
+                            <option value="pt">pt</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <label>
+                        Orientation
+                        <select id="sel-orientation">
+                            <option value="">Auto</option>
+                            <option value="portrait">Portrait</option>
+                            <option value="landscape">Landscape</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="form-row">
+                    <label>
+                        Margin (inches)
+                        <input type="number" id="inp-margin" value="0.375" step="0.125" min="0" max="5">
+                    </label>
+                </div>
+            </fieldset>
+
+            <!-- Marks & Overlay -->
+            <fieldset>
+                <legend>Marks & Overlay</legend>
+                <label class="checkbox-row">
+                    <input type="checkbox" id="chk-marks">
+                    Crop Marks
+                </label>
+                <label class="checkbox-row">
+                    <input type="checkbox" id="chk-outline">
+                    Debug Overlay (trim/bleed/group)
+                </label>
+            </fieldset>
+
+            <!-- Actions -->
+            <div id="actions">
+                <button id="btn-process" disabled>Process</button>
+                <a id="btn-download" class="hidden" download>Download Result</a>
             </div>
-            <div id="custom-size" class="hidden">
-                <div class="form-row inline">
-                    <label>W <input type="number" id="custom-w" step="0.1" min="1"></label>
-                    <label>H <input type="number" id="custom-h" step="0.1" min="1"></label>
-                    <select id="custom-unit">
-                        <option value="mm" selected>mm</option>
-                        <option value="in">in</option>
-                        <option value="pt">pt</option>
-                    </select>
+
+            <!-- Status -->
+            <div id="status" class="hidden">
+                <div id="status-spinner" class="hidden"></div>
+                <p id="status-text"></p>
+            </div>
+
+            <!-- PDF Info -->
+            <fieldset id="info-section" class="hidden">
+                <legend>PDF Info</legend>
+                <div id="info-content"></div>
+            </fieldset>
+        </div>
+
+        <!-- Tab: Page Spec -->
+        <div id="tab-page-spec" class="tab-content">
+            <div id="page-spec-empty">
+                <p>Upload a PDF to edit page boxes</p>
+            </div>
+            <div id="page-spec-editor" class="hidden">
+                <div class="spec-header-row">
+                    <label>
+                        Page
+                        <select id="spec-page-select"></select>
+                    </label>
+                    <label>
+                        Unit
+                        <select id="spec-unit">
+                            <option value="in" selected>in</option>
+                            <option value="mm">mm</option>
+                            <option value="pt">pt</option>
+                        </select>
+                    </label>
+                </div>
+
+                <fieldset class="box-editor" data-box="media">
+                    <legend>MediaBox <span class="box-color" style="background:rgba(255,165,0,0.9)"></span></legend>
+                    <div class="box-size-row">
+                        <label>W <input type="number" id="spec-media-w" step="0.0625"></label>
+                        <label>H <input type="number" id="spec-media-h" step="0.0625"></label>
+                        <button class="btn-center" data-box="media" title="Center on page">Center</button>
+                    </div>
+                    <div class="box-pos-row">
+                        <label>X <input type="number" id="spec-media-x" step="0.0625"></label>
+                        <label>Y <input type="number" id="spec-media-y" step="0.0625"></label>
+                        <label class="copy-label">Copy
+                            <select class="copy-from" data-box="media">
+                                <option value="">--</option>
+                                <option value="crop">CropBox</option>
+                                <option value="bleed">BleedBox</option>
+                                <option value="trim">TrimBox</option>
+                            </select>
+                        </label>
+                    </div>
+                </fieldset>
+
+                <fieldset class="box-editor" data-box="crop">
+                    <legend>CropBox <span class="box-color" style="background:rgba(255,0,0,0.9)"></span></legend>
+                    <div class="box-size-row">
+                        <label>W <input type="number" id="spec-crop-w" step="0.0625"></label>
+                        <label>H <input type="number" id="spec-crop-h" step="0.0625"></label>
+                        <button class="btn-center" data-box="crop" title="Center on page">Center</button>
+                    </div>
+                    <div class="box-pos-row">
+                        <label>X <input type="number" id="spec-crop-x" step="0.0625"></label>
+                        <label>Y <input type="number" id="spec-crop-y" step="0.0625"></label>
+                        <label class="copy-label">Copy
+                            <select class="copy-from" data-box="crop">
+                                <option value="">--</option>
+                                <option value="media">MediaBox</option>
+                                <option value="bleed">BleedBox</option>
+                                <option value="trim">TrimBox</option>
+                            </select>
+                        </label>
+                    </div>
+                </fieldset>
+
+                <fieldset class="box-editor" data-box="bleed">
+                    <legend>BleedBox <span class="box-color" style="background:rgba(0,100,255,0.9)"></span></legend>
+                    <div class="box-size-row">
+                        <label>W <input type="number" id="spec-bleed-w" step="0.0625"></label>
+                        <label>H <input type="number" id="spec-bleed-h" step="0.0625"></label>
+                        <button class="btn-center" data-box="bleed" title="Center on page">Center</button>
+                    </div>
+                    <div class="box-pos-row">
+                        <label>X <input type="number" id="spec-bleed-x" step="0.0625"></label>
+                        <label>Y <input type="number" id="spec-bleed-y" step="0.0625"></label>
+                        <label class="copy-label">Copy
+                            <select class="copy-from" data-box="bleed">
+                                <option value="">--</option>
+                                <option value="media">MediaBox</option>
+                                <option value="crop">CropBox</option>
+                                <option value="trim">TrimBox</option>
+                            </select>
+                        </label>
+                    </div>
+                </fieldset>
+
+                <fieldset class="box-editor" data-box="trim">
+                    <legend>TrimBox <span class="box-color" style="background:rgba(0,160,0,0.9)"></span></legend>
+                    <div class="box-size-row">
+                        <label>W <input type="number" id="spec-trim-w" step="0.0625"></label>
+                        <label>H <input type="number" id="spec-trim-h" step="0.0625"></label>
+                        <button class="btn-center" data-box="trim" title="Center on page">Center</button>
+                    </div>
+                    <div class="box-pos-row">
+                        <label>X <input type="number" id="spec-trim-x" step="0.0625"></label>
+                        <label>Y <input type="number" id="spec-trim-y" step="0.0625"></label>
+                        <label class="copy-label">Copy
+                            <select class="copy-from" data-box="trim">
+                                <option value="">--</option>
+                                <option value="media">MediaBox</option>
+                                <option value="crop">CropBox</option>
+                                <option value="bleed">BleedBox</option>
+                            </select>
+                        </label>
+                    </div>
+                </fieldset>
+
+                <p class="hint">Drag the PDF in preview to reposition content within boxes</p>
+
+                <label class="checkbox-row">
+                    <input type="checkbox" id="spec-apply-all">
+                    Apply to all pages
+                </label>
+
+                <div id="spec-actions">
+                    <button id="btn-spec-apply">Apply Changes</button>
+                    <button id="btn-spec-reset" class="btn-secondary">Reset</button>
+                </div>
+
+                <div id="spec-status" class="hidden">
+                    <p id="spec-status-text"></p>
                 </div>
             </div>
-            <div class="form-row">
-                <label>
-                    Orientation
-                    <select id="sel-orientation">
-                        <option value="">Auto</option>
-                        <option value="portrait">Portrait</option>
-                        <option value="landscape">Landscape</option>
-                    </select>
-                </label>
-            </div>
-            <div class="form-row">
-                <label>
-                    Margin (inches)
-                    <input type="number" id="inp-margin" value="0.375" step="0.125" min="0" max="5">
-                </label>
-            </div>
-        </fieldset>
-
-        <!-- Marks & Overlay -->
-        <fieldset>
-            <legend>Marks & Overlay</legend>
-            <label class="checkbox-row">
-                <input type="checkbox" id="chk-marks">
-                Crop Marks
-            </label>
-            <label class="checkbox-row">
-                <input type="checkbox" id="chk-outline">
-                Debug Overlay (trim/bleed/group)
-            </label>
-        </fieldset>
-
-        <!-- Actions -->
-        <div id="actions">
-            <button id="btn-process" disabled>Process</button>
-            <a id="btn-download" class="hidden" download>Download Result</a>
         </div>
-
-        <!-- Status -->
-        <div id="status" class="hidden">
-            <div id="status-spinner" class="hidden"></div>
-            <p id="status-text"></p>
-        </div>
-
-        <!-- PDF Info -->
-        <fieldset id="info-section" class="hidden">
-            <legend>PDF Info</legend>
-            <div id="info-content"></div>
-        </fieldset>
     </div>
 
     <script type="module" src="app.js"></script>

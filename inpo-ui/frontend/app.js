@@ -81,6 +81,10 @@ function getFitScale(pageViewport) {
     return Math.min(maxW / pageViewport.width, maxH / pageViewport.height, 2);
 }
 
+// Cache the rendered PDF so overlays can be redrawn without re-rendering the PDF
+let _pdfImageData = null;
+let _lastViewport = null;
+
 async function renderPage(num) {
     if (!state.pdfDoc) return;
     const page = await state.pdfDoc.getPage(num);
@@ -99,15 +103,123 @@ async function renderPage(num) {
     canvas.height = viewport.height;
     const ctx = canvas.getContext("2d");
     await page.render({ canvasContext: ctx, viewport }).promise;
+
+    // Cache the rendered PDF pixels
+    _pdfImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    _lastViewport = viewport;
+
+    // Draw box overlays on top
+    drawBoxOverlays(ctx, viewport, scale);
+
     state.currentPage = num;
     updatePageControls();
     updateZoomDisplay();
-    // Show grab cursor when zoomed past container
+    // Show grab cursor when zoomed past container OR on Page Spec tab for drag-reposition
     const area = $("#preview-area");
     requestAnimationFrame(() => {
         const overflows = area.scrollWidth > area.clientWidth || area.scrollHeight > area.clientHeight;
-        area.classList.toggle("pannable", overflows);
+        const isSpecTab = document.querySelector('#tab-bar .tab[data-tab="tab-page-spec"]')?.classList.contains("active");
+        area.classList.toggle("pannable", overflows || isSpecTab);
     });
+}
+
+function redrawOverlaysOnly() {
+    if (!_pdfImageData || !_lastViewport) return;
+    const ctx = canvas.getContext("2d");
+    ctx.putImageData(_pdfImageData, 0, 0);
+    drawBoxOverlays(ctx, _lastViewport, state.zoomScale);
+}
+
+// ---------- Box Overlays ----------
+// Colors: media=orange, crop=red, bleed=blue, trim=green
+const BOX_COLORS = {
+    media:  { stroke: "rgba(255, 165, 0, 0.9)", label: "Media" },
+    crop:   { stroke: "rgba(255, 0, 0, 0.9)",   label: "Crop" },
+    bleed:  { stroke: "rgba(0, 100, 255, 0.9)",  label: "Bleed" },
+    trim:   { stroke: "rgba(0, 160, 0, 0.9)",    label: "Trim" },
+};
+
+function getBoxValuesFromSpec(prefix) {
+    const xEl = $(`#spec-${prefix}-x`);
+    if (!xEl) return null;
+    const x = parseFloat(xEl.value);
+    const y = parseFloat($(`#spec-${prefix}-y`).value);
+    const w = parseFloat($(`#spec-${prefix}-w`).value);
+    const h = parseFloat($(`#spec-${prefix}-h`).value);
+    if (isNaN(x) || isNaN(y) || isNaN(w) || isNaN(h)) return null;
+    // Convert from display unit to points
+    const f = specUnitFactor();
+    return { x: x * f, y: y * f, w: w * f, h: h * f };
+}
+
+function getBoxValuesFromInfo(pageNum, boxName) {
+    if (!state.pdfInfo) return null;
+    const pg = state.pdfInfo.pages.find((p) => p.page === pageNum);
+    if (!pg || !pg.boxes[boxName]) return null;
+    const b = pg.boxes[boxName];
+    return { x: b.origin.x_pt, y: b.origin.y_pt, w: b.size.width_pt, h: b.size.height_pt };
+}
+
+function drawBoxOverlays(ctx, viewport, scale) {
+    if (!state.pdfInfo) return;
+
+    // Only draw when Page Spec tab is active
+    const isSpecTab = document.querySelector('#tab-bar .tab[data-tab="tab-page-spec"]').classList.contains("active");
+    if (!isSpecTab) return;
+
+    const pageNum = state.currentPage;
+    const specPage = parseInt($("#spec-page-select")?.value || "0");
+
+    // PDF coordinate system: origin bottom-left. Canvas: origin top-left.
+    // viewport.height = page height in canvas pixels
+    const canvasH = viewport.height;
+
+    const boxKeys = ["media", "crop", "bleed", "trim"];
+    const boxNameMap = { media: "mediabox", crop: "cropbox", bleed: "bleedbox", trim: "trimbox" };
+
+    for (const key of boxKeys) {
+        let box;
+        // If viewing the edited page, read live from inputs
+        if (pageNum === specPage) {
+            box = getBoxValuesFromSpec(key);
+        }
+        // Otherwise (or if inputs empty), read from stored pdfInfo
+        if (!box) {
+            box = getBoxValuesFromInfo(pageNum, boxNameMap[key]);
+        }
+        if (!box) continue;
+
+        const color = BOX_COLORS[key];
+        // Convert PDF coords to canvas coords
+        const cx = box.x * scale;
+        const cy = canvasH - (box.y + box.h) * scale; // flip Y
+        const cw = box.w * scale;
+        const ch = box.h * scale;
+
+        ctx.save();
+        ctx.strokeStyle = color.stroke;
+        ctx.lineWidth = key === "media" ? 2 : 1.5;
+        if (key === "crop" || key === "media") {
+            ctx.setLineDash([6, 3]);
+        } else {
+            ctx.setLineDash([]);
+        }
+        ctx.strokeRect(cx, cy, cw, ch);
+
+        // Label
+        ctx.setLineDash([]);
+        ctx.font = `bold ${Math.max(10, 11 * scale)}px sans-serif`;
+        ctx.fillStyle = color.stroke;
+        const labelX = cx + 3;
+        const labelY = cy + Math.max(12, 13 * scale);
+        // Background for readability
+        const metrics = ctx.measureText(color.label);
+        ctx.fillStyle = "rgba(255,255,255,0.75)";
+        ctx.fillRect(labelX - 1, labelY - Math.max(10, 11 * scale), metrics.width + 4, Math.max(12, 13 * scale) + 2);
+        ctx.fillStyle = color.stroke;
+        ctx.fillText(color.label, labelX, labelY);
+        ctx.restore();
+    }
 }
 
 function updatePageControls() {
@@ -193,6 +305,7 @@ async function handleFile(file) {
         fileInfo.classList.remove("hidden");
         updateProcessButton();
         showInfo(data.info);
+        showPageSpecEditor();
         showStatus("Uploaded", "success");
 
         // Load preview
@@ -223,6 +336,7 @@ function clearFile() {
     statusEl.classList.add("hidden");
     fileInput.value = "";
     updateProcessButton();
+    showPageSpecEditor();
 }
 
 // ---------- Process ----------
@@ -507,12 +621,318 @@ function setupEvents() {
     });
 }
 
+// ---------- Tabs ----------
+function setupTabs() {
+    const tabs = document.querySelectorAll("#tab-bar .tab");
+    tabs.forEach((tab) => {
+        tab.addEventListener("click", () => {
+            tabs.forEach((t) => t.classList.remove("active"));
+            document.querySelectorAll(".tab-content").forEach((c) => c.classList.remove("active"));
+            tab.classList.add("active");
+            const target = document.getElementById(tab.dataset.tab);
+            if (target) target.classList.add("active");
+            // Re-render to show/hide box overlays
+            if (state.pdfDoc) renderPage(state.currentPage);
+        });
+    });
+}
+
+// ---------- Page Spec Editor ----------
+const PT_PER_IN = 72;
+const PT_PER_MM = 72 / 25.4;
+
+function specUnitFactor() {
+    const u = $("#spec-unit").value;
+    if (u === "mm") return PT_PER_MM;
+    if (u === "in") return PT_PER_IN;
+    return 1; // pt
+}
+
+function updateSpecSteps() {
+    const u = $("#spec-unit").value;
+    let step;
+    if (u === "in") step = "0.0625";       // 1/16 inch
+    else if (u === "mm") step = "0.5";     // 0.5mm
+    else step = "1";                        // 1pt
+    document.querySelectorAll(".box-size-row input, .box-pos-row input, .box-fields input").forEach((inp) => {
+        inp.step = step;
+    });
+}
+
+function specFromPt(val) {
+    return +(val / specUnitFactor()).toFixed(4);
+}
+
+function specToPt(val) {
+    return val * specUnitFactor();
+}
+
+function populateSpecPageSelect() {
+    const sel = $("#spec-page-select");
+    sel.innerHTML = "";
+    if (!state.pdfInfo) return;
+    for (let i = 1; i <= state.pdfInfo.page_count; i++) {
+        const opt = document.createElement("option");
+        opt.value = i;
+        opt.textContent = `Page ${i}`;
+        sel.appendChild(opt);
+    }
+}
+
+function loadSpecBoxes() {
+    if (!state.pdfInfo) return;
+    const pageNum = parseInt($("#spec-page-select").value);
+    const pageData = state.pdfInfo.pages.find((p) => p.page === pageNum);
+    if (!pageData) return;
+
+    const boxes = {
+        media: "mediabox",
+        crop: "cropbox",
+        bleed: "bleedbox",
+        trim: "trimbox",
+    };
+
+    for (const [prefix, boxName] of Object.entries(boxes)) {
+        const box = pageData.boxes[boxName];
+        const xEl = $(`#spec-${prefix}-x`);
+        const yEl = $(`#spec-${prefix}-y`);
+        const wEl = $(`#spec-${prefix}-w`);
+        const hEl = $(`#spec-${prefix}-h`);
+
+        if (box) {
+            xEl.value = specFromPt(box.origin.x_pt);
+            yEl.value = specFromPt(box.origin.y_pt);
+            wEl.value = specFromPt(box.size.width_pt);
+            hEl.value = specFromPt(box.size.height_pt);
+        } else {
+            xEl.value = "";
+            yEl.value = "";
+            wEl.value = "";
+            hEl.value = "";
+        }
+    }
+}
+
+async function applySpecChanges() {
+    if (!state.jobId || !state.pdfInfo) return;
+
+    const applyAll = $("#spec-apply-all").checked;
+    const pageNums = applyAll
+        ? Array.from({ length: state.pdfInfo.page_count }, (_, i) => i + 1)
+        : [parseInt($("#spec-page-select").value)];
+
+    const boxes = {
+        media: "mediabox",
+        crop: "cropbox",
+        bleed: "bleedbox",
+        trim: "trimbox",
+    };
+
+    const pages = [];
+    for (const pgNum of pageNums) {
+        const entry = { page: pgNum };
+        for (const [prefix, boxName] of Object.entries(boxes)) {
+            const x = parseFloat($(`#spec-${prefix}-x`).value);
+            const y = parseFloat($(`#spec-${prefix}-y`).value);
+            const w = parseFloat($(`#spec-${prefix}-w`).value);
+            const h = parseFloat($(`#spec-${prefix}-h`).value);
+            if (!isNaN(x) && !isNaN(y) && !isNaN(w) && !isNaN(h)) {
+                entry[boxName] = [specToPt(x), specToPt(y), specToPt(w), specToPt(h)];
+            }
+        }
+        pages.push(entry);
+    }
+
+    const specStatus = $("#spec-status");
+    const specText = $("#spec-status-text");
+    specStatus.classList.remove("hidden");
+    specText.className = "";
+    specText.textContent = "Applying...";
+
+    try {
+        const res = await fetch(`${API}/jobs/${state.jobId}/set-boxes`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pages }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            specText.textContent = data.error || "Failed";
+            specText.classList.add("error");
+            return;
+        }
+
+        // Update stored info and reload preview
+        state.pdfInfo = data.info;
+        loadSpecBoxes();
+        await loadPdf(`${API}/jobs/${state.jobId}/input.pdf`);
+        showInfo(state.pdfInfo);
+
+        const label = applyAll ? "all pages" : `page ${pageNums[0]}`;
+        specText.textContent = `Applied to ${label}`;
+        specText.classList.add("success");
+    } catch (e) {
+        specText.textContent = `Error: ${e.message}`;
+        specText.classList.add("error");
+    }
+}
+
+function copyBoxValues(targetPrefix, sourcePrefix) {
+    const fields = ["x", "y", "w", "h"];
+    for (const f of fields) {
+        const src = $(`#spec-${sourcePrefix}-${f}`);
+        const dst = $(`#spec-${targetPrefix}-${f}`);
+        if (src && dst) dst.value = src.value;
+    }
+    redrawOverlaysOnly();
+}
+
+function centerBox(prefix) {
+    // Center this box within the MediaBox
+    const mediaW = parseFloat($("#spec-media-w").value);
+    const mediaH = parseFloat($("#spec-media-h").value);
+    const mediaX = parseFloat($("#spec-media-x").value);
+    const mediaY = parseFloat($("#spec-media-y").value);
+    const boxW = parseFloat($(`#spec-${prefix}-w`).value);
+    const boxH = parseFloat($(`#spec-${prefix}-h`).value);
+    if (isNaN(mediaW) || isNaN(mediaH) || isNaN(boxW) || isNaN(boxH)) return;
+
+    const newX = (isNaN(mediaX) ? 0 : mediaX) + (mediaW - boxW) / 2;
+    const newY = (isNaN(mediaY) ? 0 : mediaY) + (mediaH - boxH) / 2;
+    $(`#spec-${prefix}-x`).value = +newX.toFixed(4);
+    $(`#spec-${prefix}-y`).value = +newY.toFixed(4);
+    redrawOverlaysOnly();
+}
+
+function setupPageSpec() {
+    $("#spec-page-select").addEventListener("change", () => {
+        loadSpecBoxes();
+        if (state.pdfDoc) renderPage(state.currentPage);
+    });
+    $("#spec-unit").addEventListener("change", () => {
+        updateSpecSteps();
+        loadSpecBoxes();
+        redrawOverlaysOnly();
+    });
+    $("#btn-spec-apply").addEventListener("click", applySpecChanges);
+    $("#btn-spec-reset").addEventListener("click", () => {
+        loadSpecBoxes();
+        redrawOverlaysOnly();
+    });
+
+    // Live re-draw overlays on any spec input change (no full PDF re-render)
+    const specInputs = document.querySelectorAll(".box-size-row input, .box-pos-row input");
+    specInputs.forEach((inp) => {
+        inp.addEventListener("input", () => {
+            redrawOverlaysOnly();
+        });
+    });
+
+    // Copy-from dropdowns
+    document.querySelectorAll(".copy-from").forEach((sel) => {
+        sel.addEventListener("change", () => {
+            const target = sel.dataset.box;
+            const source = sel.value;
+            if (source) {
+                copyBoxValues(target, source);
+                sel.value = ""; // reset dropdown
+            }
+        });
+    });
+
+    // Center buttons
+    document.querySelectorAll(".btn-center").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            centerBox(btn.dataset.box);
+        });
+    });
+
+    // Drag to reposition content within boxes
+    setupSpecDrag();
+}
+
+function setupSpecDrag() {
+    const previewArea = $("#preview-area");
+    let specDragging = false;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let startBoxPositions = {}; // { prefix: { x, y } }
+
+    previewArea.addEventListener("mousedown", (e) => {
+        // Only drag-reposition when Page Spec tab is active
+        const isSpecTab = document.querySelector('#tab-bar .tab[data-tab="tab-page-spec"]').classList.contains("active");
+        if (!isSpecTab || !state.pdfDoc) return;
+
+        // Don't interfere with normal pan when zoomed
+        if (previewArea.scrollWidth > previewArea.clientWidth ||
+            previewArea.scrollHeight > previewArea.clientHeight) return;
+
+        specDragging = true;
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+
+        // Save starting positions of all boxes
+        const prefixes = ["media", "crop", "bleed", "trim"];
+        startBoxPositions = {};
+        for (const p of prefixes) {
+            const x = parseFloat($(`#spec-${p}-x`).value);
+            const y = parseFloat($(`#spec-${p}-y`).value);
+            if (!isNaN(x) && !isNaN(y)) {
+                startBoxPositions[p] = { x, y };
+            }
+        }
+
+        previewArea.classList.add("grabbing");
+        e.preventDefault();
+    });
+
+    document.addEventListener("mousemove", (e) => {
+        if (!specDragging) return;
+
+        // Convert pixel delta to unit delta
+        const scale = state.zoomScale;
+        const factor = specUnitFactor();
+        // Canvas pixels per display unit
+        const pxPerUnit = scale * factor;
+
+        const dx = (e.clientX - dragStartX) / pxPerUnit;
+        const dy = -(e.clientY - dragStartY) / pxPerUnit; // flip Y: canvas down = PDF up
+
+        for (const [prefix, start] of Object.entries(startBoxPositions)) {
+            $(`#spec-${prefix}-x`).value = +(start.x + dx).toFixed(4);
+            $(`#spec-${prefix}-y`).value = +(start.y + dy).toFixed(4);
+        }
+
+        redrawOverlaysOnly();
+    });
+
+    document.addEventListener("mouseup", () => {
+        if (!specDragging) return;
+        specDragging = false;
+        previewArea.classList.remove("grabbing");
+    });
+}
+
+function showPageSpecEditor() {
+    if (state.pdfInfo) {
+        $("#page-spec-empty").classList.add("hidden");
+        $("#page-spec-editor").classList.remove("hidden");
+        populateSpecPageSelect();
+        loadSpecBoxes();
+    } else {
+        $("#page-spec-empty").classList.remove("hidden");
+        $("#page-spec-editor").classList.add("hidden");
+    }
+}
+
 // ---------- Init ----------
 async function init() {
     await initPdfJs();
     await loadPresets();
     setupEvents();
     setupResize();
+    setupTabs();
+    setupPageSpec();
 }
 
 init();
