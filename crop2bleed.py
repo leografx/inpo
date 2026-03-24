@@ -15,6 +15,8 @@ import sys
 from pathlib import Path
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import ArrayObject, FloatObject, NameObject
+import pypdf.filters as pf
+pf.MAX_DECLARED_STREAM_LENGTH = 10_000_000_000
 
 
 def crop_to_bleed(input_path: str, output_path: str | None = None):

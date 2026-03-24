@@ -17,6 +17,8 @@ import sys
 from pathlib import Path
 from pypdf import PdfReader, PdfWriter, PageObject, Transformation
 from pypdf.generic import ArrayObject, FloatObject, NameObject
+import pypdf.filters as pf
+pf.MAX_DECLARED_STREAM_LENGTH = 10_000_000_000
 
 
 def remove_marks(input_path: str, output_path: str | None = None):

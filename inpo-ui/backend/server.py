@@ -25,6 +25,10 @@ from flask_cors import CORS
 INPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(INPO_ROOT))
 
+# Disable pypdf stream length limit BEFORE any pypdf-using modules are imported
+import pypdf.filters as _pf
+_pf.MAX_DECLARED_STREAM_LENGTH = 10_000_000_000
+
 from removeMarks import remove_marks
 from crop2bleed import crop_to_bleed
 from convert2cmyk import convert_to_cmyk

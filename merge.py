@@ -12,6 +12,8 @@ import argparse
 import sys
 from pathlib import Path
 from pypdf import PdfReader, PdfWriter
+import pypdf.filters as pf
+pf.MAX_DECLARED_STREAM_LENGTH = 10_000_000_000
 
 
 def merge_pdfs(

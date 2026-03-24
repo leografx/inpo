@@ -7,14 +7,19 @@ Converts images, vector content, and text color operators from RGB to CMYK.
 - Content streams: RGB operators (rg/RG) rewritten to CMYK operators (k/K)
 - Resource color spaces: ICCBased-RGB and DeviceRGB entries replaced with DeviceCMYK
 
+Default CMYK profile: iccProfiles/GRACoL2013_CRPC6.icc (bundled).
+Falls back to system profiles on macOS, Windows, and Linux if bundled profile is missing.
+
 Usage:
     python convert2cmyk.py input.pdf
     python convert2cmyk.py input.pdf -o output_cmyk.pdf
-    python convert2cmyk.py input.pdf --rgb-profile sRGB.icc --cmyk-profile USWebCoatedSWOP.icc
+    python convert2cmyk.py input.pdf --cmyk-profile /path/to/custom.icc
 """
 
 import argparse
 import io
+import os
+import platform
 import re
 import sys
 from pathlib import Path
@@ -25,10 +30,50 @@ from PIL import Image, ImageCms
 
 # ---------- default ICC profile paths ----------
 
-# macOS system profiles
-_SYSTEM_PROFILES = "/System/Library/ColorSync/Profiles"
+# Bundled profile shipped with this repo
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_BUNDLED_CMYK_PROFILE = str(_SCRIPT_DIR / "iccProfiles" / "GRACoL2013_CRPC6.icc")
+
 _DEFAULT_RGB_PROFILE = None  # use sRGB built-in
-_DEFAULT_CMYK_PROFILE = f"{_SYSTEM_PROFILES}/Generic CMYK Profile.icc"
+
+
+def _default_cmyk_profile_path() -> str:
+    """Return the best available CMYK ICC profile for the current platform."""
+    # 1. Bundled profile (preferred — ships with this repo)
+    if Path(_BUNDLED_CMYK_PROFILE).exists():
+        return _BUNDLED_CMYK_PROFILE
+
+    # 2. Platform-specific fallbacks
+    system = platform.system()
+    candidates: list[str] = []
+
+    if system == "Darwin":  # macOS
+        candidates = [
+            "/System/Library/ColorSync/Profiles/Generic CMYK Profile.icc",
+            "/Library/ColorSync/Profiles/USWebCoatedSWOP.icc",
+        ]
+    elif system == "Windows":
+        windir = os.environ.get("SYSTEMROOT", r"C:\Windows")
+        candidates = [
+            os.path.join(windir, r"System32\spool\drivers\color\USWebCoatedSWOP.icc"),
+            os.path.join(windir, r"System32\spool\drivers\color\RSWOP.icm"),
+        ]
+    else:  # Linux / other
+        candidates = [
+            "/usr/share/color/icc/ghostscript/default_cmyk.icc",
+            "/usr/share/color/icc/colord/FOGRA29L.icc",
+            "/usr/share/ghostscript/icc/default_cmyk.icc",
+        ]
+
+    for p in candidates:
+        if Path(p).exists():
+            return p
+
+    # Nothing found — return the bundled path (will error later with helpful msg)
+    return _BUNDLED_CMYK_PROFILE
+
+
+_DEFAULT_CMYK_PROFILE = _default_cmyk_profile_path()
 
 
 def _get_rgb_profile(path=None):
@@ -347,7 +392,7 @@ def main():
     )
     parser.add_argument(
         "--cmyk-profile", default=None,
-        help=f"CMYK ICC profile path (default: {_DEFAULT_CMYK_PROFILE})",
+        help="CMYK ICC profile path (default: bundled GRACoL2013_CRPC6.icc)",
     )
     parser.add_argument(
         "--intent", type=int, default=1, choices=[0, 1, 2, 3],

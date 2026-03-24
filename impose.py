@@ -16,6 +16,8 @@ import argparse
 import sys
 from pathlib import Path
 from pypdf import PdfReader, PdfWriter, Transformation, PageObject
+import pypdf.filters as pf
+pf.MAX_DECLARED_STREAM_LENGTH = 10_000_000_000
 
 # ---------- preset sheet sizes (in points, 1pt = 1/72 inch) ----------
 

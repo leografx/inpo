@@ -18,6 +18,8 @@ import re
 import sys
 from pathlib import Path
 from pypdf import PdfReader
+import pypdf.filters as pf
+pf.MAX_DECLARED_STREAM_LENGTH = 10_000_000_000
 
 MM_PER_PT = 25.4 / 72
 IN_PER_PT = 1 / 72
