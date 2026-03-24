@@ -128,10 +128,23 @@
                         </select>
                     </label>
                 </div>
-                <div class="form-row">
-                    <label>
-                        Margin (inches)
-                        <input type="number" id="inp-margin" value="0.375" step="0.125" min="0" max="5">
+                <div class="form-row margin-grid">
+                    <span class="margin-label">Margins (in)</span>
+                    <div class="margin-inputs">
+                        <div class="margin-row margin-row-top">
+                            <label class="margin-top-label"><span>Top</span><input type="number" id="inp-margin-top" value="0.375" step="0.125" min="0" max="5"></label>
+                        </div>
+                        <div class="margin-row margin-row-mid">
+                            <label class="margin-left-label"><span>Left</span><input type="number" id="inp-margin-left" value="0.375" step="0.125" min="0" max="5"></label>
+                            <label class="margin-right-label"><input type="number" id="inp-margin-right" value="0.375" step="0.125" min="0" max="5"><span>Right</span></label>
+                        </div>
+                        <div class="margin-row margin-row-bottom">
+                            <label class="margin-bottom-label"><input type="number" id="inp-margin-bottom" value="0.375" step="0.125" min="0" max="5"><span>Bottom</span></label>
+                        </div>
+                    </div>
+                    <label class="checkbox-row" style="margin-top:4px">
+                        <input type="checkbox" id="chk-margin-lock" checked>
+                        Lock all margins
                     </label>
                 </div>
             </fieldset>
@@ -153,6 +166,21 @@
             <div id="actions">
                 <button id="btn-process" disabled>Process</button>
                 <a id="btn-download" class="hidden" download>Download Result</a>
+            </div>
+
+            <!-- Layout Info -->
+            <div id="layout-info" class="hidden">
+                <fieldset>
+                    <legend>Layout</legend>
+                    <div class="layout-grid">
+                        <span class="layout-val" id="layout-across">—</span>
+                        <span class="layout-lbl">across</span>
+                        <span class="layout-val" id="layout-down">—</span>
+                        <span class="layout-lbl">down</span>
+                        <span class="layout-val layout-total" id="layout-count">—</span>
+                        <span class="layout-lbl">total per sheet</span>
+                    </div>
+                </fieldset>
             </div>
 
             <!-- Status -->

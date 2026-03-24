@@ -167,14 +167,25 @@ def process():
         outline = data.get("outline", False)
         marks = data.get("marks", False)
 
+        # Independent margins (in inches → points)
+        margins = data.get("margins", {})
+        ml = float(margins.get("left", margin_in)) * 72 if margins.get("left") is not None else None
+        mr = float(margins.get("right", margin_in)) * 72 if margins.get("right") is not None else None
+        mt = float(margins.get("top", margin_in)) * 72 if margins.get("top") is not None else None
+        mb = float(margins.get("bottom", margin_in)) * 72 if margins.get("bottom") is not None else None
+
         result_path = str(job_dir / "result.pdf")
-        impose(
+        _, layout_result = impose(
             input_path=current_file,
             sheet_size=sheet_size,
             output_path=result_path,
             outline=outline,
             marks=marks,
             margin=margin_in * 72,
+            margin_left=ml,
+            margin_right=mr,
+            margin_top=mt,
+            margin_bottom=mb,
         )
         steps_completed.append("impose")
 
@@ -186,6 +197,7 @@ def process():
             "steps_completed": steps_completed,
             "result_url": f"/api/jobs/{job_id}/result.pdf",
             "result_info": result_info,
+            "layout": layout_result,
         })
 
     except Exception as e:

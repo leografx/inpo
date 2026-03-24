@@ -30,7 +30,11 @@ python impose.py <input.pdf> --sheet <size> [options]
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `--output`, `-o` | `<input>_imposed.pdf` | Output PDF path |
-| `--margin` | `0.375` | Margin around the sheet in inches |
+| `--margin` | `0.375` | Uniform margin around the sheet in inches |
+| `--margin-left` | `--margin` | Left margin in inches (overrides `--margin`) |
+| `--margin-right` | `--margin` | Right margin in inches (overrides `--margin`) |
+| `--margin-top` | `--margin` | Top margin in inches (overrides `--margin`) |
+| `--margin-bottom` | `--margin` | Bottom margin in inches (overrides `--margin`) |
 | `--orientation` | auto | Force sheet orientation: `portrait` (tall) or `landscape` (wide) |
 | `--outline` | off | Draw debug overlay (red trim, blue bleed, orange group box, green trim guides, black crop marks) |
 | `--marks` | off | Draw crop marks only (no overlay boxes) |
@@ -63,6 +67,9 @@ python impose.py card.pdf --sheet a3 --orientation landscape --marks
 
 # No margin (edge-to-edge)
 python impose.py sticker.pdf --sheet 13x19in --margin 0
+
+# Independent margins (gripper edge needs more space)
+python impose.py card.pdf --sheet sra3 --margin-left 0.5 --margin-right 0.25 --marks
 
 # Custom output path
 python impose.py input.pdf --sheet a3 -o output_imposed.pdf

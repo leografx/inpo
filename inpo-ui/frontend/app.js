@@ -334,6 +334,7 @@ function clearFile() {
     canvas.style.display = "none";
     infoSection.classList.add("hidden");
     statusEl.classList.add("hidden");
+    $("#layout-info").classList.add("hidden");
     fileInput.value = "";
     updateProcessButton();
     showPageSpecEditor();
@@ -347,6 +348,11 @@ async function processFile() {
     btnProcess.disabled = true;
     showStatus("Processing pipeline...", "loading");
 
+    const marginLeft = parseFloat($("#inp-margin-left").value) || 0.375;
+    const marginRight = parseFloat($("#inp-margin-right").value) || 0.375;
+    const marginTop = parseFloat($("#inp-margin-top").value) || 0.375;
+    const marginBottom = parseFloat($("#inp-margin-bottom").value) || 0.375;
+
     const body = {
         job_id: state.jobId,
         remove_marks: $("#chk-remove-marks").checked,
@@ -355,7 +361,13 @@ async function processFile() {
         cmyk_intent: parseInt($("#sel-cmyk-intent").value),
         sheet: getSheetSpec(),
         orientation: $("#sel-orientation").value || null,
-        margin: parseFloat($("#inp-margin").value) || 0.375,
+        margin: marginLeft, // base fallback
+        margins: {
+            left: marginLeft,
+            right: marginRight,
+            top: marginTop,
+            bottom: marginBottom,
+        },
         outline: $("#chk-outline").checked,
         marks: $("#chk-marks").checked,
     };
@@ -384,6 +396,11 @@ async function processFile() {
 
         btnDownload.href = `${API}/jobs/${state.jobId}/result.pdf`;
         btnDownload.classList.remove("hidden");
+
+        // Show layout info
+        if (data.layout) {
+            showLayoutInfo(data.layout);
+        }
 
         const steps = data.steps_completed.join(" -> ");
         showStatus(`Done: ${steps}`, "success");
@@ -925,6 +942,45 @@ function showPageSpecEditor() {
     }
 }
 
+// ---------- Layout Info ----------
+function showLayoutInfo(layout) {
+    const el = $("#layout-info");
+    if (!layout) {
+        el.classList.add("hidden");
+        return;
+    }
+    $("#layout-across").textContent = layout.cols;
+    $("#layout-down").textContent = layout.rows;
+    $("#layout-count").textContent = layout.count_per_sheet;
+    el.classList.remove("hidden");
+}
+
+// ---------- Margin Lock ----------
+function setupMarginLock() {
+    const lock = $("#chk-margin-lock");
+    const inputs = ["#inp-margin-left", "#inp-margin-right", "#inp-margin-top", "#inp-margin-bottom"];
+
+    function syncAll(val) {
+        if (!lock.checked) return;
+        for (const sel of inputs) {
+            $(sel).value = val;
+        }
+    }
+
+    for (const sel of inputs) {
+        $(sel).addEventListener("input", () => {
+            syncAll($(sel).value);
+        });
+    }
+
+    lock.addEventListener("change", () => {
+        if (lock.checked) {
+            // Sync all to left value
+            syncAll($("#inp-margin-left").value);
+        }
+    });
+}
+
 // ---------- Init ----------
 async function init() {
     await initPdfJs();
@@ -933,6 +989,7 @@ async function init() {
     setupResize();
     setupTabs();
     setupPageSpec();
+    setupMarginLock();
 }
 
 init();

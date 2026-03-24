@@ -652,6 +652,88 @@ input[type="number"] {
     font-weight: 600;
 }
 
+/* ---------- Margin Grid ---------- */
+.margin-grid {
+    padding: 6px 0;
+}
+
+.margin-label {
+    font-size: 13px;
+    font-weight: 500;
+    display: block;
+    margin-bottom: 6px;
+}
+
+.margin-inputs {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.margin-row {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+}
+
+.margin-row label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
+.margin-row input[type="number"] {
+    width: 70px;
+    font-size: 12px;
+    padding: 4px 6px;
+}
+
+/* Top: label above input */
+.margin-top-label {
+    flex-direction: column !important;
+}
+
+/* Bottom: input above label */
+.margin-bottom-label {
+    flex-direction: column !important;
+}
+
+/* Left: label left, input right (default row, already correct) */
+.margin-left-label {
+    flex-direction: row !important;
+}
+
+/* Right: input left, label right */
+.margin-right-label {
+    flex-direction: row !important;
+}
+
+/* ---------- Layout Info ---------- */
+.layout-grid {
+    display: grid;
+    grid-template-columns: auto 1fr auto 1fr auto 1fr;
+    gap: 4px 10px;
+    align-items: baseline;
+}
+
+.layout-val {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--accent);
+    text-align: right;
+}
+
+.layout-val.layout-total {
+    color: var(--success);
+}
+
+.layout-lbl {
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
 /* ---------- Utilities ---------- */
 .hidden {
     display: none !important;

@@ -308,6 +308,7 @@ def _create_marks_page(sheet_w, sheet_h, trim_rects, bleed_rects, group_rect):
 def _impose_single_page(
     src_page, sheet_w, sheet_h, avail_w, avail_h, margin,
     outline, marks, is_back=False, front_layout=None,
+    margin_left=None, margin_bottom=None,
 ):
     """
     Impose a single source page onto a sheet.
@@ -331,11 +332,13 @@ def _impose_single_page(
         count, cols, rows, rotated, eff_pw, eff_ph = layout
         back_rotation = False
 
-    # Center the grid on the sheet
+    # Center the grid within the available area (respecting asymmetric margins)
     grid_w = cols * eff_pw
     grid_h = rows * eff_ph
-    offset_x = (sheet_w - grid_w) / 2
-    offset_y = (sheet_h - grid_h) / 2
+    ml = margin_left if margin_left is not None else margin
+    mb = margin_bottom if margin_bottom is not None else margin
+    offset_x = ml + (avail_w - grid_w) / 2
+    offset_y = mb + (avail_h - grid_h) / 2
 
     # Create a blank output page
     out_page = PageObject.create_blank_page(width=sheet_w, height=sheet_h)
@@ -447,16 +450,28 @@ def impose(
     outline: bool = False,
     marks: bool = False,
     margin: float = 0.375 * 72,
+    margin_left: float | None = None,
+    margin_right: float | None = None,
+    margin_top: float | None = None,
+    margin_bottom: float | None = None,
 ):
     reader = PdfReader(input_path)
     writer = PdfWriter()
 
     sheet_w, sheet_h = sheet_size
-    # Available area after margin on all sides
-    avail_w = sheet_w - 2 * margin
-    avail_h = sheet_h - 2 * margin
+
+    # Resolve independent margins (fall back to uniform margin)
+    ml = margin_left if margin_left is not None else margin
+    mr = margin_right if margin_right is not None else margin
+    mt = margin_top if margin_top is not None else margin
+    mb = margin_bottom if margin_bottom is not None else margin
+
+    # Available area after margins
+    avail_w = sheet_w - ml - mr
+    avail_h = sheet_h - mt - mb
 
     total_placed = 0
+    first_layout = None  # track first layout for return info
     pages = list(reader.pages)
     num_pages = len(pages)
 
@@ -469,6 +484,7 @@ def impose(
         result = _impose_single_page(
             src_page, sheet_w, sheet_h, avail_w, avail_h, margin,
             outline, marks, is_back=False, front_layout=None,
+            margin_left=ml, margin_bottom=mb,
         )
         if result is None:
             print(f"Warning: Page {page_idx + 1} ({crop_w:.1f}x{crop_h:.1f}pt crop) "
@@ -478,6 +494,8 @@ def impose(
 
         out_page, layout_info = result
         count, cols, rows, rotated, eff_pw, eff_ph = layout_info
+        if first_layout is None:
+            first_layout = layout_info
         writer.add_page(out_page)
         placed = cols * rows
         total_placed += placed
@@ -497,6 +515,7 @@ def impose(
             back_result = _impose_single_page(
                 back_page, sheet_w, sheet_h, avail_w, avail_h, margin,
                 outline, marks, is_back=True, front_layout=layout_info,
+                margin_left=ml, margin_bottom=mb,
             )
             if back_result is None:
                 print(f"Warning: Page {page_idx + 2} does not fit. Skipping.")
@@ -525,7 +544,17 @@ def impose(
 
     print(f"\nTotal copies placed: {total_placed}")
     print(f"Output: {output_path}")
-    return output_path
+
+    layout_result = None
+    if first_layout:
+        layout_result = {
+            "cols": first_layout[1],
+            "rows": first_layout[2],
+            "count_per_sheet": first_layout[0],
+            "total_placed": total_placed,
+        }
+
+    return output_path, layout_result
 
 
 def main():
@@ -561,8 +590,12 @@ def main():
     )
     parser.add_argument(
         "--margin", type=float, default=0.375,
-        help="Margin around the sheet in inches (default: 0.375)",
+        help="Uniform margin around the sheet in inches (default: 0.375). Overridden by individual margin flags.",
     )
+    parser.add_argument("--margin-left", type=float, default=None, help="Left margin in inches (overrides --margin)")
+    parser.add_argument("--margin-right", type=float, default=None, help="Right margin in inches (overrides --margin)")
+    parser.add_argument("--margin-top", type=float, default=None, help="Top margin in inches (overrides --margin)")
+    parser.add_argument("--margin-bottom", type=float, default=None, help="Bottom margin in inches (overrides --margin)")
     parser.add_argument(
         "--orientation", choices=["portrait", "landscape"],
         default=None,
@@ -595,6 +628,10 @@ def main():
         outline=args.outline,
         marks=args.marks,
         margin=args.margin * IN_TO_PT,
+        margin_left=args.margin_left * IN_TO_PT if args.margin_left is not None else None,
+        margin_right=args.margin_right * IN_TO_PT if args.margin_right is not None else None,
+        margin_top=args.margin_top * IN_TO_PT if args.margin_top is not None else None,
+        margin_bottom=args.margin_bottom * IN_TO_PT if args.margin_bottom is not None else None,
     )
 
 
