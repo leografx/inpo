@@ -64,6 +64,8 @@
         <div id="tab-bar">
             <button class="tab active" data-tab="tab-impose">Impose</button>
             <button class="tab" data-tab="tab-page-spec">Page Spec</button>
+            <button class="tab" data-tab="tab-colors">Colors</button>
+            <button class="tab" data-tab="tab-info">Info</button>
         </div>
 
         <!-- Tab: Impose -->
@@ -189,11 +191,55 @@
                 <p id="status-text"></p>
             </div>
 
-            <!-- PDF Info -->
-            <fieldset id="info-section" class="hidden">
-                <legend>PDF Info</legend>
-                <div id="info-content"></div>
+        </div>
+
+        <!-- Tab: Colors (Separation Preview) -->
+        <div id="tab-colors" class="tab-content">
+            <fieldset>
+                <legend>Color Separation</legend>
+                <p class="hint" style="margin-bottom:10px">Toggle CMYK channels to preview individual color separations</p>
+                <div class="sep-channels">
+                    <label class="sep-channel" data-channel="c">
+                        <input type="checkbox" id="sep-c" checked>
+                        <span class="sep-swatch" style="background:#00aeef"></span>
+                        Cyan
+                    </label>
+                    <label class="sep-channel" data-channel="m">
+                        <input type="checkbox" id="sep-m" checked>
+                        <span class="sep-swatch" style="background:#ec008c"></span>
+                        Magenta
+                    </label>
+                    <label class="sep-channel" data-channel="y">
+                        <input type="checkbox" id="sep-y" checked>
+                        <span class="sep-swatch" style="background:#fff200"></span>
+                        Yellow
+                    </label>
+                    <label class="sep-channel" data-channel="k">
+                        <input type="checkbox" id="sep-k" checked>
+                        <span class="sep-swatch" style="background:#231f20"></span>
+                        Black
+                    </label>
+                </div>
+                <div class="sep-presets">
+                    <button class="btn-sep-preset" data-preset="all" title="Show all channels">All On</button>
+                    <button class="btn-sep-preset" data-preset="c" title="Cyan only">C</button>
+                    <button class="btn-sep-preset" data-preset="m" title="Magenta only">M</button>
+                    <button class="btn-sep-preset" data-preset="y" title="Yellow only">Y</button>
+                    <button class="btn-sep-preset" data-preset="k" title="Black only">K</button>
+                    <button class="btn-sep-preset" data-preset="cmy" title="CMY without black">CMY</button>
+                </div>
             </fieldset>
+            <fieldset>
+                <legend>Display</legend>
+                <label class="checkbox-row">
+                    <input type="checkbox" id="sep-simulate" checked>
+                    Simulate ink colors
+                </label>
+                <p class="hint">When off, shows channel values as grayscale</p>
+            </fieldset>
+            <div id="sep-empty" class="hidden">
+                <p style="color:var(--text-dim);text-align:center;padding:20px 0">Upload a PDF to preview color separations</p>
+            </div>
         </div>
 
         <!-- Tab: Page Spec -->
@@ -317,6 +363,17 @@
                     <p id="spec-status-text"></p>
                 </div>
             </div>
+        </div>
+
+        <!-- Tab: Info -->
+        <div id="tab-info" class="tab-content">
+            <div id="info-empty">
+                <p>Upload a PDF to view info</p>
+            </div>
+            <fieldset id="info-section" class="hidden">
+                <legend>PDF Info</legend>
+                <div id="info-content"></div>
+            </fieldset>
         </div>
     </div>
 

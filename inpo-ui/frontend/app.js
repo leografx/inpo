@@ -46,6 +46,12 @@ const btnZoomOut = $("#btn-zoom-out");
 const btnZoomFit = $("#btn-zoom-fit");
 const zoomLevel = $("#zoom-level");
 
+// ---------- Color Separation State ----------
+const sepState = {
+    c: true, m: true, y: true, k: true,
+    simulate: true, // true = show ink colors, false = grayscale
+};
+
 // ---------- PDF.js setup ----------
 let pdfjsLib;
 
@@ -104,9 +110,12 @@ async function renderPage(num) {
     const ctx = canvas.getContext("2d");
     await page.render({ canvasContext: ctx, viewport }).promise;
 
-    // Cache the rendered PDF pixels
+    // Cache the rendered PDF pixels (original, before separation)
     _pdfImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     _lastViewport = viewport;
+
+    // Apply color separation filter if Colors tab is active
+    applySeparationToCanvas(ctx);
 
     // Draw box overlays on top
     drawBoxOverlays(ctx, viewport, scale);
@@ -127,7 +136,75 @@ function redrawOverlaysOnly() {
     if (!_pdfImageData || !_lastViewport) return;
     const ctx = canvas.getContext("2d");
     ctx.putImageData(_pdfImageData, 0, 0);
+    applySeparationToCanvas(ctx);
     drawBoxOverlays(ctx, _lastViewport, state.zoomScale);
+}
+
+// ---------- Color Separation ----------
+function isColorsTabActive() {
+    const tab = document.querySelector('#tab-bar .tab[data-tab="tab-colors"]');
+    return tab && tab.classList.contains("active");
+}
+
+function isSepFiltered() {
+    // Returns true if any channel is turned off (separation active)
+    return !sepState.c || !sepState.m || !sepState.y || !sepState.k;
+}
+
+function applySeparationToCanvas(ctx) {
+    if (!isColorsTabActive() || !isSepFiltered()) return;
+
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imgData.data;
+    const { c, m, y, k } = sepState;
+    const sim = sepState.simulate;
+
+    // PDF.js renders to RGB canvas. We approximate CMYK separation from RGB.
+    // RGB -> CMYK: K = 1 - max(R,G,B); C = (1-R-K)/(1-K); M = (1-G-K)/(1-K); Y = (1-B-K)/(1-K)
+    // Then filter channels and convert back to RGB.
+
+    for (let i = 0; i < data.length; i += 4) {
+        const r = data[i] / 255;
+        const g = data[i + 1] / 255;
+        const b = data[i + 2] / 255;
+
+        // RGB to CMYK
+        const maxRGB = Math.max(r, g, b);
+        let kv, cv, mv, yv;
+        if (maxRGB === 0) {
+            kv = 1; cv = 0; mv = 0; yv = 0;
+        } else {
+            kv = 1 - maxRGB;
+            const invK = 1 - kv;
+            cv = (1 - r - kv) / invK;
+            mv = (1 - g - kv) / invK;
+            yv = (1 - b - kv) / invK;
+        }
+
+        // Apply channel toggles
+        const fc = c ? cv : 0;
+        const fm = m ? mv : 0;
+        const fy = y ? yv : 0;
+        const fk = k ? kv : 0;
+
+        if (sim) {
+            // Simulate ink: CMYK -> RGB
+            // R = 255 * (1-C) * (1-K); G = 255 * (1-M) * (1-K); B = 255 * (1-Y) * (1-K)
+            data[i]     = 255 * (1 - fc) * (1 - fk);
+            data[i + 1] = 255 * (1 - fm) * (1 - fk);
+            data[i + 2] = 255 * (1 - fy) * (1 - fk);
+        } else {
+            // Grayscale: show combined density as gray
+            const density = Math.min(1, fc + fm + fy + fk);
+            const gray = 255 * (1 - density);
+            data[i] = gray;
+            data[i + 1] = gray;
+            data[i + 2] = gray;
+        }
+        // alpha unchanged
+    }
+
+    ctx.putImageData(imgData, 0, 0);
 }
 
 // ---------- Box Overlays ----------
@@ -333,6 +410,8 @@ function clearFile() {
     previewPlaceholder.classList.remove("hidden");
     canvas.style.display = "none";
     infoSection.classList.add("hidden");
+    const infoEmpty = $("#info-empty");
+    if (infoEmpty) infoEmpty.classList.remove("hidden");
     statusEl.classList.add("hidden");
     $("#layout-info").classList.add("hidden");
     fileInput.value = "";
@@ -432,10 +511,13 @@ function updateProcessButton() {
 
 // ---------- Info display ----------
 function showInfo(info) {
+    const infoEmpty = $("#info-empty");
     if (!info || !info.pages || info.pages.length === 0) {
         infoSection.classList.add("hidden");
+        if (infoEmpty) infoEmpty.classList.remove("hidden");
         return;
     }
+    if (infoEmpty) infoEmpty.classList.add("hidden");
 
     let html = "";
     for (const pg of info.pages) {
@@ -981,6 +1063,68 @@ function setupMarginLock() {
     });
 }
 
+// ---------- Color Separation Controls ----------
+function setupColorSep() {
+    const channels = ["c", "m", "y", "k"];
+
+    // Channel checkboxes
+    for (const ch of channels) {
+        const chk = $(`#sep-${ch}`);
+        chk.addEventListener("change", () => {
+            sepState[ch] = chk.checked;
+            const label = chk.closest(".sep-channel");
+            label.classList.toggle("off", !chk.checked);
+            updateSepPresetHighlight();
+            redrawOverlaysOnly();
+        });
+    }
+
+    // Simulate ink toggle
+    $("#sep-simulate").addEventListener("change", (e) => {
+        sepState.simulate = e.target.checked;
+        redrawOverlaysOnly();
+    });
+
+    // Preset buttons
+    document.querySelectorAll(".btn-sep-preset").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            const preset = btn.dataset.preset;
+            let vals;
+            if (preset === "all") vals = { c: true, m: true, y: true, k: true };
+            else if (preset === "c") vals = { c: true, m: false, y: false, k: false };
+            else if (preset === "m") vals = { c: false, m: true, y: false, k: false };
+            else if (preset === "y") vals = { c: false, m: false, y: true, k: false };
+            else if (preset === "k") vals = { c: false, m: false, y: false, k: true };
+            else if (preset === "cmy") vals = { c: true, m: true, y: true, k: false };
+            else return;
+
+            for (const ch of channels) {
+                sepState[ch] = vals[ch];
+                const chk = $(`#sep-${ch}`);
+                chk.checked = vals[ch];
+                chk.closest(".sep-channel").classList.toggle("off", !vals[ch]);
+            }
+            updateSepPresetHighlight();
+            redrawOverlaysOnly();
+        });
+    });
+}
+
+function updateSepPresetHighlight() {
+    const { c, m, y, k } = sepState;
+    document.querySelectorAll(".btn-sep-preset").forEach((btn) => {
+        const p = btn.dataset.preset;
+        let active = false;
+        if (p === "all" && c && m && y && k) active = true;
+        else if (p === "c" && c && !m && !y && !k) active = true;
+        else if (p === "m" && !c && m && !y && !k) active = true;
+        else if (p === "y" && !c && !m && y && !k) active = true;
+        else if (p === "k" && !c && !m && !y && k) active = true;
+        else if (p === "cmy" && c && m && y && !k) active = true;
+        btn.classList.toggle("active", active);
+    });
+}
+
 // ---------- Init ----------
 async function init() {
     await initPdfJs();
@@ -990,6 +1134,8 @@ async function init() {
     setupTabs();
     setupPageSpec();
     setupMarginLock();
+    setupColorSep();
+    updateSepPresetHighlight();
 }
 
 init();
