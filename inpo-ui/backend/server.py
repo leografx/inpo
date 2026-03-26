@@ -300,6 +300,118 @@ def set_boxes(job_id):
     return jsonify({"info": info})
 
 
+@app.route("/api/jobs/<job_id>/rotate", methods=["POST"])
+def rotate_page(job_id):
+    """
+    Rotate pages of the uploaded PDF by transforming content and boxes.
+    Body: { pages: [1,2,...] or "all", angle: 90 }
+    Uses pikepdf for reliable page rotation that transforms content streams.
+    """
+    import pikepdf
+    import traceback
+
+    job_dir = _job_dir(job_id)
+    input_path = job_dir / "input.pdf"
+    if not input_path.exists():
+        abort(404)
+
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Missing body"}), 400
+
+    angle = int(data.get("angle", 90)) % 360
+    target_pages = data.get("pages", "all")
+
+    try:
+        with pikepdf.open(str(input_path), allow_overwriting_input=True) as pdf:
+            for i, page in enumerate(pdf.pages):
+                pg_num = i + 1
+                if target_pages == "all" or pg_num in target_pages:
+                    # Get current MediaBox dimensions
+                    mb = page.MediaBox
+                    x0, y0, x1, y1 = [float(v) for v in mb]
+                    w = x1 - x0
+                    h = y1 - y0
+
+                    # Rotate the page content using a content stream transformation
+                    # PDF cm matrix: [a b c d e f] maps (x,y) -> (ax+cy+e, bx+dy+f)
+                    if angle == 90:
+                        # 90° CW: (x,y) -> (y, w-x) => matrix [0 -1 1 0 0 w]
+                        cm = f"q 0 -1 1 0 0 {w:.4f} cm\n"
+                        new_w, new_h = h, w
+                    elif angle == 180:
+                        # 180°: (x,y) -> (w-x, h-y) => matrix [-1 0 0 -1 w h]
+                        cm = f"q -1 0 0 -1 {w:.4f} {h:.4f} cm\n"
+                        new_w, new_h = w, h
+                    elif angle == 270:
+                        # 270° CW (= 90° CCW): (x,y) -> (h-y, x) => matrix [0 1 -1 0 h 0]
+                        cm = f"q 0 1 -1 0 {h:.4f} 0 cm\n"
+                        new_w, new_h = h, w
+                    else:
+                        continue
+
+                    # Read existing content stream(s)
+                    raw = b""
+                    contents = page.get("/Contents")
+                    if contents is not None:
+                        # Resolve indirect reference
+                        if isinstance(contents, pikepdf.Object):
+                            contents = contents
+                        if isinstance(contents, pikepdf.Array):
+                            for ref in contents:
+                                stream_obj = ref
+                                if isinstance(stream_obj, pikepdf.Stream):
+                                    raw += stream_obj.read_bytes()
+                        elif isinstance(contents, pikepdf.Stream):
+                            raw += contents.read_bytes()
+
+                    new_stream = cm.encode() + raw + b"\nQ\n"
+                    page["/Contents"] = pdf.make_stream(new_stream)
+
+                    # Helper to rotate a box (matches content stream rotation)
+                    def _rotate_box(bx0, by0, bx1, by1, _w=w, _h=h, _angle=angle):
+                        if _angle == 90:
+                            # 90° CW: (x,y) -> (y, w-x)
+                            return by0, _w - bx1, by1, _w - bx0
+                        elif _angle == 180:
+                            return _w - bx1, _h - by1, _w - bx0, _h - by0
+                        elif _angle == 270:
+                            # 270° CW: (x,y) -> (h-y, x)
+                            return _h - by1, bx0, _h - by0, bx1
+                        return bx0, by0, bx1, by1
+
+                    # Update MediaBox
+                    page["/MediaBox"] = pikepdf.Array([x0, y0, x0 + new_w, y0 + new_h])
+
+                    # Update other boxes if they exist
+                    for box_name in ["/CropBox", "/BleedBox", "/TrimBox", "/ArtBox"]:
+                        if box_name in page:
+                            bx0, by0, bx1, by1 = [float(v) for v in page[box_name]]
+                            rbx0 = bx0 - x0
+                            rby0 = by0 - y0
+                            rbx1 = bx1 - x0
+                            rby1 = by1 - y0
+                            nbx0, nby0, nbx1, nby1 = _rotate_box(rbx0, rby0, rbx1, rby1)
+                            nbx0, nbx1 = min(nbx0, nbx1), max(nbx0, nbx1)
+                            nby0, nby1 = min(nby0, nby1), max(nby0, nby1)
+                            page[box_name] = pikepdf.Array([
+                                nbx0 + x0, nby0 + y0, nbx1 + x0, nby1 + y0,
+                            ])
+
+                    # Clear any /Rotate since we've physically rotated the content
+                    if "/Rotate" in page:
+                        del page["/Rotate"]
+
+            pdf.save(str(input_path))
+
+        info = pdf_info(str(input_path))
+        return jsonify({"info": info})
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/jobs/<job_id>", methods=["DELETE"])
 def delete_job(job_id):
     """Clean up a job directory."""

@@ -52,6 +52,8 @@ const sepState = {
     simulate: true, // true = show ink colors, false = grayscale
 };
 
+let showBoxOverlays = true;
+
 // ---------- PDF.js setup ----------
 let pdfjsLib;
 
@@ -93,6 +95,11 @@ let _lastViewport = null;
 
 async function renderPage(num) {
     if (!state.pdfDoc) return;
+
+    // Hide boxes while rendering to avoid stale overlays
+    const savedShowBoxes = showBoxOverlays;
+    showBoxOverlays = false;
+
     const page = await state.pdfDoc.getPage(num);
     const unscaled = page.getViewport({ scale: 1 });
 
@@ -117,10 +124,17 @@ async function renderPage(num) {
     // Apply color separation filter if Colors tab is active
     applySeparationToCanvas(ctx);
 
-    // Draw box overlays on top
-    drawBoxOverlays(ctx, viewport, scale);
-
     state.currentPage = num;
+
+    // Reload spec boxes if viewing the spec page (so overlays match current pdfInfo)
+    const specSel = $("#spec-page-select");
+    if (specSel && parseInt(specSel.value) === num) {
+        loadSpecBoxes();
+    }
+
+    // Restore boxes and draw overlays with fresh render
+    showBoxOverlays = savedShowBoxes;
+    drawBoxOverlays(ctx, viewport, scale);
     updatePageControls();
     updateZoomDisplay();
     // Show grab cursor when zoomed past container OR on Page Spec tab for drag-reposition
@@ -240,15 +254,28 @@ function getBoxValuesFromInfo(pageNum, boxName) {
 function drawBoxOverlays(ctx, viewport, scale) {
     if (!state.pdfInfo) return;
 
-    // Only draw when Page Spec tab is active
+    // Only draw when Page Spec tab is active and overlays are enabled
     const isSpecTab = document.querySelector('#tab-bar .tab[data-tab="tab-page-spec"]').classList.contains("active");
-    if (!isSpecTab) return;
+    if (!isSpecTab || !showBoxOverlays) return;
 
     const pageNum = state.currentPage;
     const specPage = parseInt($("#spec-page-select")?.value || "0");
 
-    // PDF coordinate system: origin bottom-left. Canvas: origin top-left.
-    // viewport.height = page height in canvas pixels
+    // PDF.js renders based on the page's view box (CropBox or MediaBox).
+    // We need to offset our absolute PDF coordinates by the view box origin.
+    const pgData = state.pdfInfo.pages.find((p) => p.page === pageNum);
+    let viewOriginX = 0, viewOriginY = 0, viewH = 0;
+    if (pgData) {
+        // PDF.js uses CropBox if available, otherwise MediaBox
+        const viewBox = pgData.boxes.cropbox || pgData.boxes.mediabox;
+        if (viewBox) {
+            viewOriginX = viewBox.origin.x_pt;
+            viewOriginY = viewBox.origin.y_pt;
+            viewH = viewBox.size.height_pt;
+        }
+    }
+
+    // Canvas height in PDF points = viewH, canvas pixel height = viewport.height
     const canvasH = viewport.height;
 
     const boxKeys = ["media", "crop", "bleed", "trim"];
@@ -267,9 +294,9 @@ function drawBoxOverlays(ctx, viewport, scale) {
         if (!box) continue;
 
         const color = BOX_COLORS[key];
-        // Convert PDF coords to canvas coords
-        const cx = box.x * scale;
-        const cy = canvasH - (box.y + box.h) * scale; // flip Y
+        // Convert PDF coords to canvas coords, relative to the view box origin
+        const cx = (box.x - viewOriginX) * scale;
+        const cy = canvasH - (box.y - viewOriginY + box.h) * scale; // flip Y
         const cw = box.w * scale;
         const ch = box.h * scale;
 
@@ -382,6 +409,7 @@ async function handleFile(file) {
         fileInfo.classList.remove("hidden");
         updateProcessButton();
         showInfo(data.info);
+        showColorInfo(data.info);
         showPageSpecEditor();
         showStatus("Uploaded", "success");
 
@@ -417,6 +445,7 @@ function clearFile() {
     fileInput.value = "";
     updateProcessButton();
     showPageSpecEditor();
+    showColorInfo(null);
 }
 
 // ---------- Process ----------
@@ -559,6 +588,113 @@ function showInfo(info) {
 
     infoContent.innerHTML = html;
     infoSection.classList.remove("hidden");
+}
+
+// ---------- Color Info (Colors tab) ----------
+function showColorInfo(info) {
+    const empty = $("#colors-empty");
+    const content = $("#colors-content");
+
+    if (!info || !info.color_summary) {
+        if (empty) empty.classList.remove("hidden");
+        if (content) content.classList.add("hidden");
+        return;
+    }
+    if (empty) empty.classList.add("hidden");
+    if (content) content.classList.remove("hidden");
+
+    // Populate page select
+    const sel = $("#colors-page-select");
+    const prevVal = sel.value;
+    sel.innerHTML = "";
+    for (let i = 1; i <= info.page_count; i++) {
+        const opt = document.createElement("option");
+        opt.value = i;
+        opt.textContent = `Page ${i}`;
+        sel.appendChild(opt);
+    }
+    // Restore selection if still valid
+    if (prevVal && parseInt(prevVal) <= info.page_count) {
+        sel.value = prevVal;
+    }
+
+    updateColorInfoForPage(info);
+}
+
+function updateColorInfoForPage(info) {
+    if (!info) info = state.pdfInfo;
+    if (!info) return;
+
+    const pageNum = parseInt($("#colors-page-select").value) || 1;
+    const pgData = info.pages.find((p) => p.page === pageNum);
+
+    // Per-page color info
+    const pgColor = pgData?.color;
+    const cs = info.color_summary;
+
+    // Color mode — determine per-page
+    let pageMode = "Unknown";
+    if (pgColor) {
+        const spaces = pgColor.color_spaces || [];
+        const imgSpaces = pgColor.images?.color_spaces || [];
+        const all = [...spaces, ...imgSpaces];
+        const hasRGB = all.some(s => s.includes("RGB"));
+        const hasCMYK = all.some(s => s.includes("CMYK"));
+        const hasGray = all.some(s => s.includes("Gray"));
+        if (hasCMYK && !hasRGB) pageMode = "CMYK";
+        else if (hasRGB && !hasCMYK) pageMode = "RGB";
+        else if (hasCMYK && hasRGB) pageMode = "Mixed (RGB + CMYK)";
+        else if (hasGray) pageMode = "Grayscale";
+    }
+    $("#color-mode").textContent = pageMode;
+
+    // Color spaces for this page
+    if (pgColor) {
+        const allSpaces = [...new Set([...(pgColor.color_spaces || []), ...(pgColor.images?.color_spaces || [])])];
+        $("#color-spaces").textContent = allSpaces.length > 0 ? allSpaces.sort().join(", ") : "None detected";
+    } else {
+        $("#color-spaces").textContent = "None detected";
+    }
+
+    // ICC Profiles (document-level)
+    const icc = info.icc_profiles || [];
+    $("#color-icc").textContent = icc.length > 0 ? icc.join(", ") : "None embedded";
+
+    // Output Intents (document-level)
+    const oi = info.output_intents || [];
+    if (oi.length > 0) {
+        const parts = oi.map((o) => {
+            let s = o.profile_name || o.condition_id || o.condition || o.subtype || "Unknown";
+            if (o.info && o.info !== s) s += ` (${o.info})`;
+            return s;
+        });
+        $("#color-output-intent").textContent = parts.join("; ");
+    } else {
+        $("#color-output-intent").textContent = "None";
+    }
+
+    // Summary badges — per-page
+    let badges = "";
+    if (pgColor) {
+        const allSpaces = [...(pgColor.color_spaces || []), ...(pgColor.images?.color_spaces || [])];
+        const hasRGB = allSpaces.some(s => s.includes("RGB"));
+        const hasCMYK = allSpaces.some(s => s.includes("CMYK"));
+        const hasGray = allSpaces.some(s => s.includes("Gray"));
+        const spots = pgColor.spot_colors || [];
+
+        if (hasCMYK) badges += '<span class="color-badge badge-cmyk"><span class="badge-dot"></span>CMYK</span>';
+        if (hasRGB) badges += '<span class="color-badge badge-rgb"><span class="badge-dot"></span>RGB</span>';
+        if (hasGray) badges += '<span class="color-badge badge-gray"><span class="badge-dot"></span>Grayscale</span>';
+        for (const sp of spots) {
+            badges += `<span class="color-badge badge-spot"><span class="badge-dot"></span>${sp}</span>`;
+        }
+        if (pgColor.images?.count > 0) {
+            badges += `<span class="color-badge badge-icc"><span class="badge-dot"></span>${pgColor.images.count} image(s)</span>`;
+        }
+    }
+    if (icc.length > 0) badges += '<span class="color-badge badge-icc"><span class="badge-dot"></span>ICC Profile</span>';
+    if (!badges) badges = '<span style="color:var(--text-dim);font-size:12px">No color info available</span>';
+    $("#color-badges").innerHTML = badges;
 }
 
 // ---------- Status ----------
@@ -861,11 +997,18 @@ async function applySpecChanges() {
             return;
         }
 
-        // Update stored info and reload preview
+        // Update stored info, reload spec inputs, then re-render
         state.pdfInfo = data.info;
         loadSpecBoxes();
-        await loadPdf(`${API}/jobs/${state.jobId}/input.pdf`);
         showInfo(state.pdfInfo);
+        showColorInfo(state.pdfInfo);
+
+        // Reload the PDF (boxes changed on server) with cache buster
+        const currentPg = state.currentPage;
+        await loadPdf(`${API}/jobs/${state.jobId}/input.pdf?t=${Date.now()}`);
+        if (currentPg !== 1 && currentPg <= state.totalPages) {
+            await renderPage(currentPg);
+        }
 
         const label = applyAll ? "all pages" : `page ${pageNums[0]}`;
         specText.textContent = `Applied to ${label}`;
@@ -903,10 +1046,114 @@ function centerBox(prefix) {
     redrawOverlaysOnly();
 }
 
+async function rotateAllBoxes() {
+    const target = $("#spec-rotate-target").value;
+
+    if (target === "page" || target === "all-pages" || target === "odd-pages" || target === "even-pages") {
+        // Rotate the actual PDF page(s) via the server
+        if (!state.jobId) return;
+        let pageNums;
+        if (target === "all-pages") {
+            pageNums = "all";
+        } else if (target === "odd-pages") {
+            pageNums = [];
+            for (let i = 1; i <= state.totalPages; i += 2) pageNums.push(i);
+        } else if (target === "even-pages") {
+            pageNums = [];
+            for (let i = 2; i <= state.totalPages; i += 2) pageNums.push(i);
+        } else {
+            pageNums = [parseInt($("#spec-page-select").value)];
+        }
+
+        // Turn off boxes during rotate so they don't render with stale coords
+        const wasShowingBoxes = showBoxOverlays;
+        showBoxOverlays = false;
+
+        try {
+            const res = await fetch(`${API}/jobs/${state.jobId}/rotate`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ pages: pageNums, angle: 90 }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                showStatus(data.error || "Rotate failed", "error");
+                return;
+            }
+
+            state.pdfInfo = data.info;
+            showInfo(state.pdfInfo);
+            showColorInfo(state.pdfInfo);
+
+            // Reload PDF with cache buster to avoid stale cached version
+            const currentPg = state.currentPage;
+            await loadPdf(`${API}/jobs/${state.jobId}/input.pdf?t=${Date.now()}`);
+
+            // Navigate to the same page and sync spec inputs
+            const targetPg = Math.min(currentPg, state.totalPages);
+            if (targetPg !== 1) {
+                await renderPage(targetPg);
+            }
+            // Sync spec page select and reload box values from fresh pdfInfo
+            const specSel = $("#spec-page-select");
+            if (specSel && targetPg <= state.totalPages) {
+                specSel.value = targetPg;
+            }
+            loadSpecBoxes();
+        } catch (e) {
+            showStatus(`Rotate error: ${e.message}`, "error");
+        } finally {
+            // Restore boxes and redraw with fresh coords from updated pdfInfo
+            showBoxOverlays = wasShowingBoxes;
+            redrawOverlaysOnly();
+        }
+    } else {
+        // Rotate boxes only: swap W and H, keep positions
+        const prefixes = ["media", "crop", "bleed", "trim"];
+        for (const p of prefixes) {
+            const wEl = $(`#spec-${p}-w`);
+            const hEl = $(`#spec-${p}-h`);
+            if (!wEl || !hEl) continue;
+            const w = wEl.value;
+            const h = hEl.value;
+            if (w === "" && h === "") continue;
+            wEl.value = h;
+            hEl.value = w;
+        }
+        // Apply the swapped boxes to the PDF so they persist
+        await applySpecChanges();
+    }
+}
+
+function centerAllBoxes() {
+    // Get the actual page size from pdfInfo (original MediaBox in points)
+    if (!state.pdfInfo) return;
+    const pageNum = parseInt($("#spec-page-select").value);
+    const pageData = state.pdfInfo.pages.find((p) => p.page === pageNum);
+    if (!pageData || !pageData.boxes.mediabox) return;
+
+    const pageW = pageData.boxes.mediabox.size.width_pt;
+    const pageH = pageData.boxes.mediabox.size.height_pt;
+    const f = specUnitFactor();
+    const pw = pageW / f;
+    const ph = pageH / f;
+
+    // Center every box (media, crop, bleed, trim) on the page
+    for (const prefix of ["media", "crop", "bleed", "trim"]) {
+        const bw = parseFloat($(`#spec-${prefix}-w`).value);
+        const bh = parseFloat($(`#spec-${prefix}-h`).value);
+        if (isNaN(bw) || isNaN(bh)) continue;
+        $(`#spec-${prefix}-x`).value = +((pw - bw) / 2).toFixed(4);
+        $(`#spec-${prefix}-y`).value = +((ph - bh) / 2).toFixed(4);
+    }
+    redrawOverlaysOnly();
+}
+
 function setupPageSpec() {
     $("#spec-page-select").addEventListener("change", () => {
+        const selectedPage = parseInt($("#spec-page-select").value);
         loadSpecBoxes();
-        if (state.pdfDoc) renderPage(state.currentPage);
+        if (state.pdfDoc) renderPage(selectedPage);
     });
     $("#spec-unit").addEventListener("change", () => {
         updateSpecSteps();
@@ -916,6 +1163,15 @@ function setupPageSpec() {
     $("#btn-spec-apply").addEventListener("click", applySpecChanges);
     $("#btn-spec-reset").addEventListener("click", () => {
         loadSpecBoxes();
+        redrawOverlaysOnly();
+    });
+    $("#btn-rotate-boxes").addEventListener("click", rotateAllBoxes);
+    $("#btn-center-all").addEventListener("click", centerAllBoxes);
+    $("#btn-toggle-boxes").addEventListener("click", () => {
+        showBoxOverlays = !showBoxOverlays;
+        const btn = $("#btn-toggle-boxes");
+        btn.classList.toggle("active", showBoxOverlays);
+        btn.classList.toggle("toggled-off", !showBoxOverlays);
         redrawOverlaysOnly();
     });
 
@@ -1066,6 +1322,13 @@ function setupMarginLock() {
 // ---------- Color Separation Controls ----------
 function setupColorSep() {
     const channels = ["c", "m", "y", "k"];
+
+    // Page select — navigate preview and update per-page color info
+    $("#colors-page-select").addEventListener("change", () => {
+        const selectedPage = parseInt($("#colors-page-select").value);
+        updateColorInfoForPage(state.pdfInfo);
+        if (state.pdfDoc) renderPage(selectedPage);
+    });
 
     // Channel checkboxes
     for (const ch of channels) {

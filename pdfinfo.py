@@ -219,6 +219,160 @@ def _get_page_color_info(page):
     }
 
 
+def _get_icc_profiles(reader):
+    """Extract ICC profile names found in the PDF."""
+    profiles = set()
+    from pypdf.generic import IndirectObject, ArrayObject
+
+    for page in reader.pages:
+        resources = page.get("/Resources")
+        if resources is None:
+            continue
+
+        # Check /ColorSpace entries for ICCBased profiles
+        cs_dict = resources.get("/ColorSpace")
+        if cs_dict is not None:
+            try:
+                for name, cs_obj in cs_dict.items():
+                    if isinstance(cs_obj, IndirectObject):
+                        cs_obj = cs_obj.get_object()
+                    if isinstance(cs_obj, ArrayObject) and len(cs_obj) >= 2:
+                        cs_type = str(cs_obj[0]).lstrip("/")
+                        if cs_type == "ICCBased":
+                            stream = cs_obj[1]
+                            if isinstance(stream, IndirectObject):
+                                stream = stream.get_object()
+                            n = int(stream.get("/N", 0))
+                            # Try to read profile description from the ICC data
+                            profile_name = _extract_icc_description(stream)
+                            if not profile_name:
+                                ch_map = {1: "Gray", 3: "RGB", 4: "CMYK"}
+                                profile_name = f"ICCBased ({ch_map.get(n, str(n) + 'ch')})"
+                            profiles.add(profile_name)
+            except Exception:
+                pass
+
+        # Check images for ICC profiles
+        xobjects = resources.get("/XObject")
+        if xobjects is not None:
+            try:
+                for name, obj_ref in xobjects.items():
+                    obj = obj_ref
+                    if isinstance(obj, IndirectObject):
+                        obj = obj.get_object()
+                    if not hasattr(obj, "get"):
+                        continue
+                    if str(obj.get("/Subtype", "")) != "/Image":
+                        continue
+                    cs = obj.get("/ColorSpace")
+                    if cs is not None:
+                        if isinstance(cs, IndirectObject):
+                            cs = cs.get_object()
+                        if isinstance(cs, ArrayObject) and len(cs) >= 2:
+                            cs_type = str(cs[0]).lstrip("/")
+                            if cs_type == "ICCBased":
+                                stream = cs[1]
+                                if isinstance(stream, IndirectObject):
+                                    stream = stream.get_object()
+                                profile_name = _extract_icc_description(stream)
+                                if not profile_name:
+                                    n = int(stream.get("/N", 0))
+                                    ch_map = {1: "Gray", 3: "RGB", 4: "CMYK"}
+                                    profile_name = f"ICCBased ({ch_map.get(n, str(n) + 'ch')})"
+                                profiles.add(profile_name)
+            except Exception:
+                pass
+
+    return sorted(profiles)
+
+
+def _extract_icc_description(stream_obj):
+    """Try to extract the profile description from an ICC stream."""
+    try:
+        data = stream_obj.get_data()
+        # ICC profile 'desc' tag: search for 'desc' in tag table
+        # Tag table starts at offset 128, each entry is 12 bytes: signature(4) + offset(4) + size(4)
+        if len(data) < 132:
+            return None
+        import struct
+        tag_count = struct.unpack(">I", data[128:132])[0]
+        for i in range(min(tag_count, 100)):
+            base = 132 + i * 12
+            if base + 12 > len(data):
+                break
+            sig = data[base:base + 4]
+            offset = struct.unpack(">I", data[base + 4:base + 8])[0]
+            size = struct.unpack(">I", data[base + 8:base + 12])[0]
+            if sig == b'desc':
+                if offset + 12 > len(data):
+                    break
+                # desc tag type: 'desc' (4) + reserved (4) + length (4) + ascii string
+                desc_type = data[offset:offset + 4]
+                if desc_type == b'desc':
+                    str_len = struct.unpack(">I", data[offset + 8:offset + 12])[0]
+                    desc = data[offset + 12:offset + 12 + str_len].decode("ascii", errors="ignore").rstrip("\x00")
+                    if desc:
+                        return desc
+                elif desc_type == b'mluc':
+                    # Multi-localized Unicode type
+                    if offset + 16 > len(data):
+                        break
+                    rec_count = struct.unpack(">I", data[offset + 8:offset + 12])[0]
+                    if rec_count > 0 and offset + 28 <= len(data):
+                        str_len = struct.unpack(">I", data[offset + 16 + 4:offset + 16 + 8])[0]
+                        str_off = struct.unpack(">I", data[offset + 16 + 8:offset + 16 + 12])[0]
+                        abs_off = offset + str_off
+                        if abs_off + str_len <= len(data):
+                            desc = data[abs_off:abs_off + str_len].decode("utf-16-be", errors="ignore").rstrip("\x00")
+                            if desc:
+                                return desc
+    except Exception:
+        pass
+    return None
+
+
+def _get_output_intents(reader):
+    """Extract PDF OutputIntents (e.g. PDF/X output intent profiles)."""
+    intents = []
+    try:
+        root = reader.trailer["/Root"]
+        oi_array = root.get("/OutputIntents")
+        if oi_array is None:
+            return intents
+        from pypdf.generic import IndirectObject
+        for item in oi_array:
+            if isinstance(item, IndirectObject):
+                item = item.get_object()
+            entry = {}
+            s = item.get("/S")
+            if s:
+                entry["subtype"] = str(s).lstrip("/")
+            oc = item.get("/OutputCondition")
+            if oc:
+                entry["condition"] = str(oc)
+            oci = item.get("/OutputConditionIdentifier")
+            if oci:
+                entry["condition_id"] = str(oci)
+            ri = item.get("/RegistryName")
+            if ri:
+                entry["registry"] = str(ri)
+            info_str = item.get("/Info")
+            if info_str:
+                entry["info"] = str(info_str)
+            # Try to get profile name from DestOutputProfile stream
+            dp = item.get("/DestOutputProfile")
+            if dp:
+                if isinstance(dp, IndirectObject):
+                    dp = dp.get_object()
+                profile_name = _extract_icc_description(dp)
+                if profile_name:
+                    entry["profile_name"] = profile_name
+            intents.append(entry)
+    except Exception:
+        pass
+    return intents
+
+
 def pdf_info(input_path):
     """Return a dict with page box info for the entire PDF."""
     reader = PdfReader(input_path)
@@ -250,14 +404,36 @@ def pdf_info(input_path):
         result["pages"].append(page_data)
 
     # Document-level color summary
+    has_rgb = any("RGB" in cs for cs in all_color_spaces)
+    has_cmyk = any("CMYK" in cs for cs in all_color_spaces)
+    has_gray = any("Gray" in cs for cs in all_color_spaces)
+    has_spot = len(all_spot_colors) > 0
+
+    # Determine color mode
+    if has_cmyk and not has_rgb:
+        color_mode = "CMYK"
+    elif has_rgb and not has_cmyk:
+        color_mode = "RGB"
+    elif has_cmyk and has_rgb:
+        color_mode = "Mixed (RGB + CMYK)"
+    elif has_gray:
+        color_mode = "Grayscale"
+    else:
+        color_mode = "Unknown"
+
     result["color_summary"] = {
         "color_spaces": sorted(all_color_spaces),
         "spot_colors": all_spot_colors,
-        "has_rgb": any("RGB" in cs for cs in all_color_spaces),
-        "has_cmyk": any("CMYK" in cs for cs in all_color_spaces),
-        "has_gray": any("Gray" in cs for cs in all_color_spaces),
-        "has_spot": len(all_spot_colors) > 0,
+        "has_rgb": has_rgb,
+        "has_cmyk": has_cmyk,
+        "has_gray": has_gray,
+        "has_spot": has_spot,
+        "color_mode": color_mode,
     }
+
+    # Extract ICC profiles and output intents
+    result["icc_profiles"] = _get_icc_profiles(reader)
+    result["output_intents"] = _get_output_intents(reader)
 
     return result
 

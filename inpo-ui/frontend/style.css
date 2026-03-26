@@ -226,7 +226,56 @@ body {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 12px;
-    margin-bottom: 4px;
+    margin-bottom: 8px;
+}
+
+.spec-action-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.spec-action-row select {
+    flex: 1;
+    font-size: 12px;
+    padding: 5px 8px;
+}
+
+.btn-rotate {
+    width: 36px;
+    height: 36px;
+    background: var(--bg-input);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.25s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-rotate:hover {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+}
+
+.btn-rotate:active {
+    transform: rotate(90deg);
+}
+
+.btn-rotate.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+.btn-rotate.toggled-off {
+    opacity: 0.4;
 }
 
 .spec-header-row label {
@@ -737,6 +786,90 @@ input[type="number"] {
     font-size: 12px;
     color: var(--text-dim);
 }
+
+/* ---------- Color Info ---------- */
+#colors-empty {
+    color: var(--text-dim);
+    text-align: center;
+    padding: 40px 0;
+}
+
+.color-info-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 12px;
+    align-items: baseline;
+}
+
+.color-info-label {
+    font-size: 12px;
+    color: var(--text-dim);
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.color-info-value {
+    font-size: 12px;
+    color: var(--text);
+    word-break: break-word;
+}
+
+.color-summary-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.color-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.color-badge .badge-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.color-badge.badge-rgb {
+    background: rgba(232, 85, 85, 0.15);
+    color: #e85555;
+}
+
+.color-badge.badge-rgb .badge-dot { background: #e85555; }
+
+.color-badge.badge-cmyk {
+    background: rgba(76, 175, 128, 0.15);
+    color: #4caf80;
+}
+
+.color-badge.badge-cmyk .badge-dot { background: #4caf80; }
+
+.color-badge.badge-gray {
+    background: rgba(136, 136, 160, 0.15);
+    color: #8888a0;
+}
+
+.color-badge.badge-gray .badge-dot { background: #8888a0; }
+
+.color-badge.badge-spot {
+    background: rgba(255, 165, 0, 0.15);
+    color: #ffa500;
+}
+
+.color-badge.badge-spot .badge-dot { background: #ffa500; }
+
+.color-badge.badge-icc {
+    background: rgba(91, 141, 248, 0.15);
+    color: #5b8df8;
+}
+
+.color-badge.badge-icc .badge-dot { background: #5b8df8; }
 
 /* ---------- Color Separation Tab ---------- */
 .sep-channels {
